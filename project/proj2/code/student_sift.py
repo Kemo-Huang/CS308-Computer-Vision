@@ -65,8 +65,79 @@ def get_features(image, x, y, feature_width, scales=None):
     # decrease your matching accuracy.                                          #
     #############################################################################
 
-    raise NotImplementedError('`get_features` function in ' +
-        '`student_sift.py` needs to be implemented')
+    features = 0
+    octave_layers = 3
+    contrast_threshold = 0.04
+    edge_threshold = 10
+    sigma = 1.6
+    sift_init_sigma = 0.5
+    feat_dim = 128
+
+    # D(x, y, σ)
+    G = np.exp(-(np.square(x) + np.square(y) / 2 / sigma ** 2)) / \
+        2 / np.pi / sigma ** 2
+    G2 = np.exp(-(np.square(x) + np.square(y) / 4 / sigma ** 2)) / \
+        4 / np.pi / sigma ** 2
+    D = (G2 - G) * image[x, y]
+
+    # init Gaussian
+    sig_diff = np.sqrt(
+        max(sigma * sigma - sift_init_sigma * sift_init_sigma * 4, 0.01))
+    resized = cv2.resize(
+        image, (2 * image.shape[1], 2 * image.shape[0]), interpolation=cv2.INTER_LINEAR)
+    base = cv2.GaussianBlur(resized, 0, sig_diff)
+
+    
+
+    # number of octaves
+    # for( size_t i = 0; i < keypoints.size(); i++ )
+    # {
+    #     KeyPoint& kpt = keypoints[i];
+    #     float scale = 1.f/(float)(1 << -firstOctave);
+    #     kpt.octave = (kpt.octave & ~255) | ((kpt.octave + firstOctave) & 255);
+    #     kpt.pt *= scale;
+    #     kpt.size *= scale;
+    # }
+    for i in range(len(x)):
+        scale = 0.5
+        
+    
+    octaves = int(round(np.log(min(base.shape)) / np.log(2) - 2)) + 1
+
+    # build Gaussian pyramid
+    sig_len = octave_layers + 3
+    sig = [sigma] * sig_len
+    gpyr = [None] * octaves * sig_len
+    k = np.pow(2, 1 / octave_layers)
+    for i in range(1, octave_layers + 3):
+        sig_prev = np.pow(k, i-1) * sigma
+        sig_total = sig_prev * k
+        sig[i] = np.sqrt(sig_total * sig_total - sig_prev * sig_prev)
+    for o in range(octaves):
+        for i in range(sig_len):
+            if o == 0 and i == 0:
+                gpyr[o * sig_len + i] = base
+            elif i == 0:
+                src = gpyr[(o - 1) * sig_len + octave_layers]
+                cv2.resize(src, (src.shape[1] // 2, src.shape[0] // 2),
+                           gpyr[o * sig_len + i], interpolation=cv2.INTER_NEAREST)
+            else:
+                src = gpyr[o * sig_len + i - 1]
+                gpyr[o * sig_len + i] = cv2.GaussianBlur(src, 0, sig[i])
+
+    # build DoG pyramid
+    dogpyr = [None] * octaves * (octave_layers + 2)
+    for a in range(len(dogpyr)):
+        o = a // (octave_layers + 2)
+        i = a % (octave_layers + 2)
+        src1 = gpyr[o*(octave_layers + 3) + i]
+        src2 = gpyr[o*(octave_layers + 3) + i + 1]
+        cv2.subtract(src1, src2, dogpyr[o*(octave_layers + 2) + i])
+        
+        
+    # Detects features at extrema in DoG scale space
+    
+    fv = np.zeros((len(x), feat_dim))
 
     #############################################################################
     #                             END OF YOUR CODE                              #

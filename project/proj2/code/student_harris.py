@@ -44,54 +44,62 @@ def get_interest_points(image, feature_width):
             at each interest point
     """
     confidences, scales, orientations = None, None, None
-    #############################################################################
-    # TODO: YOUR HARRIS CORNER DETECTOR CODE HERE                                                      #
-    #############################################################################
-
-    raise NotImplementedError('`get_interest_points` function in ' +
-    '`student_harris.py` needs to be implemented')
-
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
     
-    #############################################################################
-    # TODO: YOUR ADAPTIVE NON-MAXIMAL SUPPRESSION CODE HERE                     #
-    # While most feature detectors simply look for local maxima in              #
-    # the interest function, this can lead to an uneven distribution            #
-    # of feature points across the image, e.g., points will be denser           #
-    # in regions of higher contrast. To mitigate this problem, Brown,           #
-    # Szeliski, and Winder (2005) only detect features that are both            #
-    # local maxima and whose response value is significantly (10%)              #
-    # greater than that of all of its neighbors within a radius r. The          #
-    # goal is to retain only those points that are a maximum in a               #
-    # neighborhood of radius r pixels. One way to do so is to sort all          #
-    # points by the response strength, from large to small response.            #
-    # The first entry in the list is the global maximum, which is not           #
-    # suppressed at any radius. Then, we can iterate through the list           #
-    # and compute the distance to each interest point ahead of it in            #
-    # the list (these are pixels with even greater response strength).          #
-    # The minimum of distances to a keypoint's stronger neighbors               #
-    # (multiplying these neighbors by >=1.1 to add robustness) is the           #
-    # radius within which the current point is a local maximum. We              #
-    # call this the suppression radius of this interest point, and we           #
-    # save these suppression radii. Finally, we sort the suppression            #
-    # radii from large to small, and return the n keypoints                     #
-    # associated with the top n suppression radii, in this sorted               #
-    # orderself. Feel free to experiment with n, we used n=1500.                #
-    #                                                                           #
-    # See:                                                                      #
-    # https://www.microsoft.com/en-us/research/wp-content/uploads/2005/06/cvpr05.pdf
-    # or                                                                        #
-    # https://www.cs.ucsb.edu/~holl/pubs/Gauglitz-2011-ICIP.pdf                 #
-    #############################################################################
+    # dest = cv2.cornerHarris(image, 5, 3, 0.06) 
+    # ind = np.argwhere(dest > 0.01 * dest.max())
+    # x = ind[:, 0]
+    # y = ind[:, 1]
+    
+    k = 0.06
+    n = 2500
 
-    raise NotImplementedError('adaptive non-maximal suppression in ' +
-    '`student_harris.py` needs to be implemented')
+    # Compute the horizontal and vertical derivatives of the image I x and I y
+    # by convolving the original image with derivatives of Gaussians
+    ix = cv2.Sobel(image, -1, 1, 0)
+    iy = cv2.Sobel(image, -1, 0, 1)
 
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
-    return x,y, confidences, scales, orientations
+    # Compute the three images corresponding to the outer products of these gradients.
+    # (The matrix A is symmetric, so only three entries are needed.)
+    ixx = np.square(ix)
+    iyy = np.square(iy)
+    ixy = np.multiply(ix, iy)
 
+    # Convolve each of these images with a larger Gaussian.
+    gaussian = cv2.getGaussianKernel(3, 1.5)
+    gxx = cv2.filter2D(ixx, -1, gaussian)
+    gyy = cv2.filter2D(iyy, -1, gaussian)
+    gxy = cv2.filter2D(ixy, -1, gaussian)
 
+    # Compute a scalar interest measure using one of the formulas discussed above.
+    # np.linalg.det(A) - k * (np.trace(A) ** 2)
+    R = np.multiply(gxx, gyy) - np.square(gxy) - k * np.square(gxx + gyy)
+
+    # Find local maxima above a certain threshold and report them as detected feature point locations.
+    thres = 0.01 * R.max()
+    indices = np.argwhere(R > thres)
+    x = indices[:, 0]
+    y = indices[:, 1]
+
+    responses = R[x, y]
+
+    size = len(indices)
+    ind = np.argsort(-responses)
+    points = np.hstack((x[ind], y[ind]))
+    
+    radii = np.zeros(size)
+    radii[0] = np.inf
+
+    for i in range(1, size):
+        curr_response = responses[ind[i]]
+        idx = i
+        while idx < size - 1:
+            if responses[idx+1] * 1.1 > curr_response:
+                idx += 1
+            else:
+                break
+        radii[i] = np.min(np.square(points[:idx] - points[i]))
+
+    x = np.array(x[np.argpartition(radii, -n)[-n:]])
+    y = np.array(y[np.argpartition(radii, -n)[-n:]])
+
+    return x, y, confidences, scales, orientations
