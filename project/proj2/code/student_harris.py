@@ -50,8 +50,10 @@ def get_interest_points(image, feature_width):
     # x = ind[:, 0]
     # y = ind[:, 1]
     
-    k = 0.06
-    n = 2500
+    k = 0.04
+    thres_w = 0.01
+    sigma = 1.5
+    nms_w = 0.4
 
     # Compute the horizontal and vertical derivatives of the image I x and I y
     # by convolving the original image with derivatives of Gaussians
@@ -65,7 +67,7 @@ def get_interest_points(image, feature_width):
     ixy = np.multiply(ix, iy)
 
     # Convolve each of these images with a larger Gaussian.
-    gaussian = cv2.getGaussianKernel(3, 1.5)
+    gaussian = cv2.getGaussianKernel(3, sigma)
     gxx = cv2.filter2D(ixx, -1, gaussian)
     gyy = cv2.filter2D(iyy, -1, gaussian)
     gxy = cv2.filter2D(ixy, -1, gaussian)
@@ -75,16 +77,17 @@ def get_interest_points(image, feature_width):
     R = np.multiply(gxx, gyy) - np.square(gxy) - k * np.square(gxx + gyy)
 
     # Find local maxima above a certain threshold and report them as detected feature point locations.
-    thres = 0.01 * R.max()
+    thres = thres_w * R.max()
     indices = np.argwhere(R > thres)
-    x = indices[:, 0]
-    y = indices[:, 1]
+    x = indices[:, 1]
+    y = indices[:, 0]
 
-    responses = R[x, y]
+    responses = R[y, x]
 
+    # non-maxima suppress
     size = len(indices)
     ind = np.argsort(-responses)
-    points = np.hstack((x[ind], y[ind]))
+    points = np.hstack((y[ind], x[ind]))
     
     radii = np.zeros(size)
     radii[0] = np.inf
@@ -99,6 +102,7 @@ def get_interest_points(image, feature_width):
                 break
         radii[i] = np.min(np.square(points[:idx] - points[i]))
 
+    n = int(nms_w * size)
     x = np.array(x[np.argpartition(radii, -n)[-n:]])
     y = np.array(y[np.argpartition(radii, -n)[-n:]])
 

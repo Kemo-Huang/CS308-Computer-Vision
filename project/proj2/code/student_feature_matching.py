@@ -34,14 +34,24 @@ def match_features(features1, features2, x1, y1, x2, y2):
 
     'matches' and 'confidences' can be empty e.g. (0x2) and (0x1)
     """
-    #############################################################################
-    # TODO: YOUR CODE HERE                                                        #
-    #############################################################################
+    threshold = 0.01
+    n = len(x1)
+    m = len(x2)
 
-    raise NotImplementedError('`match_features` function in ' +
-        '`student_feature_matching.py` needs to be implemented')
+    ratios = np.zeros(n)
+    nns = np.zeros(n)
+    for i in range(n):
+        distance = np.sum(
+            np.square(np.tile(features1[i, :], (m, 1)) - features2), 1)
+        argnn = np.argpartition(distance, 2)[2:]
+        ratios[i] = distance[argnn[0]] / distance[argnn[1]]
+        nns[i] = argnn[0]
 
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    ind = np.argwhere(ratios < threshold)[:, 0]
+    ratios = ratios[ind]
+    ind = ind[np.argsort(ratios)]
+    matches = np.vstack((ind, nns[ind])).astype(int).T
+    
+    confidences = None
+
     return matches, confidences
