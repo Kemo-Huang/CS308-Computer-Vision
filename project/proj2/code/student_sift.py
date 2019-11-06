@@ -125,69 +125,41 @@ def get_features(image, x, y, feature_width, scales=None):
     #     cv2.subtract(src1, src2, dogpyr[o*(octave_layers + 2) + i])
 
     # SIFT descriptor
+    ksize = 3
     n_angles = 8
     n_bins = 4
     n_samples = n_bins * n_bins
-    alpha = 3
     n_pts = len(x)
     threshold = 0.2
 
     fv = np.zeros((n_pts, n_angles * n_samples))
 
-    angles = np.linspace(0, 2*np.pi, n_angles)
-
-    interval = np.linspace(2 / n_bins, 2, n_bins) - (1 / n_bins + 1)
-
-    grid_x, grid_y = np.meshgrid(interval, interval)
-    grid_x = grid_x.reshape((1, n_samples))
-    grid_y = grid_y.reshape((1, n_samples))
+    # padding
+    image = np.pad(image, feature_width // 2)
 
     # histogram of oriented gradients
-    ix = cv2.Sobel(image, -1, 1, 0)
-    iy = cv2.Sobel(image, -1, 0, 1)
+    ix = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=ksize)
+    iy = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=ksize)
     magnitude = np.sqrt(np.square(ix) + np.square(iy))
     theta = np.arctan2(iy, ix)
-    io = np.zeros((image.shape[0], image.shape[1], n_angles))
 
-    for a in range(n_angles):
-        tmp = np.power(np.cos(theta - angles[a]), alpha)
-        tmp[tmp < 0] = 0
-        io[:, :, a] = np.multiply(tmp, magnitude)
+    theta[theta > 1] = 2
+    theta[theta < -1] = -1
+    x = x.astype(int)
+    y = y.astype(int)
 
-    for i in range(n_pts):
-        # find coordinates of sample points
-        grid_x_t = grid_x * feature_width + x[i]
-        grid_y_t = grid_y * feature_width + y[i]
-        # find coordinates of pixels
-        x_l = int(max(np.floor(x[i] - feature_width - feature_width / 4), 0))
-        x_h = int(min(np.ceil(x[i] + feature_width + feature_width / 4), image.shape[1]))
-        y_l = int(max(np.floor(y[i] - feature_width - feature_width / 4), 0))
-        y_h = int(min(np.ceil(y[i] + feature_width + feature_width / 4), image.shape[0]))
-        grid_px, grid_py = np.meshgrid(
-            np.linspace(x_l, x_h, x_h - x_l),
-            np.linspace(y_l, y_h, y_h - y_l))
-        n_pix = np.prod(grid_px.shape)
-        grid_px = np.reshape(grid_px, (n_pix, 1))
-        grid_py = np.reshape(grid_py, (n_pix, 1))
-        # find distance
-        dist_px = abs(np.tile(grid_px, (1, n_samples)) -
-                      np.tile(grid_x_t, (n_pix, 1)))
-        dist_py = abs(np.tile(grid_py, (1, n_samples)) -
-                      np.tile(grid_y_t, (n_pix, 1)))
-        # find weights
-        weights_x = 1 - dist_px / feature_width / 2
-        weights_x[weights_x < 0] = 0
-        weights_y = 1 - dist_py / feature_width / 2
-        weights_y[weights_y < 0] = 0
-        weights = np.multiply(weights_x, weights_y)
-        
-        # multiply weights
-        curr_sift = np.zeros((n_angles, n_samples))
-        for a in range(n_angles):
-            tmp = np.reshape(io[y_l: y_h, x_l: x_h, a], (n_pix, 1))
-            tmp = np.tile(tmp, (1, n_samples))
-            curr_sift[a, :] = np.sum(np.multiply(tmp, weights))
-        fv[i, :] = np.reshape(curr_sift, (1, n_samples * n_angles))
+    for k in range(n_pts):
+        histogram = np.zeros((n_bins, n_bins, n_angles))
+        for j in range(feature_width):
+            for i in range(feature_width):
+                curr = (y[k] + j, x[k] + i)
+                if ix[curr] > 0:
+                    histogram[j // n_bins, i // n_bins,
+                              int(np.ceil(theta[curr] + 1))] += magnitude[curr]
+                else:
+                    histogram[j // n_bins, i // n_bins,
+                              int(np.ceil(theta[curr] + 1 + n_bins))] += magnitude[curr]
+        fv[k, :] = np.reshape(histogram, (1, n_angles * n_samples))
 
     # normalize, threshold, normalize
     tmp = np.sqrt(np.sum(np.power(fv, 2), 1))
@@ -195,5 +167,4 @@ def get_features(image, x, y, feature_width, scales=None):
     fv_norm[fv_norm > threshold] = threshold
     tmp = np.sqrt(np.sum(np.power(fv_norm, 2), 1))
     fv = np.divide(fv_norm, np.tile(tmp, (fv.shape[1], 1)).T)
-
     return fv

@@ -34,24 +34,23 @@ def match_features(features1, features2, x1, y1, x2, y2):
 
     'matches' and 'confidences' can be empty e.g. (0x2) and (0x1)
     """
-    threshold = 0.01
+    threshold = 0.6
+    max_matches = 100
     n = len(x1)
     m = len(x2)
 
-    ratios = np.zeros(n)
-    nns = np.zeros(n)
+    match_points = []
     for i in range(n):
         distance = np.sum(
             np.square(np.tile(features1[i, :], (m, 1)) - features2), 1)
-        argnn = np.argpartition(distance, 2)[2:]
-        ratios[i] = distance[argnn[0]] / distance[argnn[1]]
-        nns[i] = argnn[0]
+        argnn = np.argpartition(distance, 2)[:2]
+        ratio = distance[argnn[0]] / distance[argnn[1]]
+        if ratio < threshold:
+            match_points.append([ratio, i, argnn[0]])
 
-    ind = np.argwhere(ratios < threshold)[:, 0]
-    ratios = ratios[ind]
-    ind = ind[np.argsort(ratios)]
-    matches = np.vstack((ind, nns[ind])).astype(int).T
-    
-    confidences = None
+    sorted_match_points = sorted(match_points, key=lambda x: x[0])
+    matches = np.array([[i[1], i[2]]
+                        for i in sorted_match_points[:max_matches]]).astype(int)
+    confidences = np.array(i[0] for i in sorted_match_points[:max_matches])
 
     return matches, confidences

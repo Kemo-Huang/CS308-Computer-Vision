@@ -44,21 +44,23 @@ def get_interest_points(image, feature_width):
             at each interest point
     """
     confidences, scales, orientations = None, None, None
-    
-    # dest = cv2.cornerHarris(image, 5, 3, 0.06) 
+
+    # dest = cv2.cornerHarris(image, 5, 3, 0.06)
     # ind = np.argwhere(dest > 0.01 * dest.max())
     # x = ind[:, 0]
     # y = ind[:, 1]
-    
-    k = 0.04
-    thres_w = 0.01
+
+    ksize1 = 3
+    ksize2 = 5
     sigma = 1.5
-    nms_w = 0.4
+    k = 0.06
+    threshold = 10000
+    n = 1500
 
     # Compute the horizontal and vertical derivatives of the image I x and I y
     # by convolving the original image with derivatives of Gaussians
-    ix = cv2.Sobel(image, -1, 1, 0)
-    iy = cv2.Sobel(image, -1, 0, 1)
+    ix = cv2.Sobel(image, -1, 1, 0, ksize=ksize1)
+    iy = cv2.Sobel(image, -1, 0, 1, ksize=ksize1)
 
     # Compute the three images corresponding to the outer products of these gradients.
     # (The matrix A is symmetric, so only three entries are needed.)
@@ -67,7 +69,7 @@ def get_interest_points(image, feature_width):
     ixy = np.multiply(ix, iy)
 
     # Convolve each of these images with a larger Gaussian.
-    gaussian = cv2.getGaussianKernel(3, sigma)
+    gaussian = cv2.getGaussianKernel(ksize2, sigma)
     gxx = cv2.filter2D(ixx, -1, gaussian)
     gyy = cv2.filter2D(iyy, -1, gaussian)
     gxy = cv2.filter2D(ixy, -1, gaussian)
@@ -77,32 +79,32 @@ def get_interest_points(image, feature_width):
     R = np.multiply(gxx, gyy) - np.square(gxy) - k * np.square(gxx + gyy)
 
     # Find local maxima above a certain threshold and report them as detected feature point locations.
-    thres = thres_w * R.max()
-    indices = np.argwhere(R > thres)
-    x = indices[:, 1]
-    y = indices[:, 0]
+    corners = []
+    for row in range(R.shape[0]):
+        for col in range(R.shape[1]):
+            corners.append([R[row, col], col, row])
+    # threshold
+    corners = np.array(sorted(corners, key=lambda x:x[0], reverse=True)[:threshold])
 
-    responses = R[y, x]
+    responses = corners[:, 0]
+    x = corners[:, 1]
+    y = corners[:, 2]
 
-    # non-maxima suppress
-    size = len(indices)
-    ind = np.argsort(-responses)
-    points = np.hstack((y[ind], x[ind]))
-    
+    # non-maxima suppress    
+    points = np.vstack([y, x]).T
+    size = len(x)
     radii = np.zeros(size)
     radii[0] = np.inf
-
     for i in range(1, size):
-        curr_response = responses[ind[i]]
+        curr_response = responses[i]
         idx = i
-        while idx < size - 1:
-            if responses[idx+1] * 1.1 > curr_response:
-                idx += 1
-            else:
-                break
-        radii[i] = np.min(np.square(points[:idx] - points[i]))
+        # while idx < size - 1:
+        #     if responses[idx+1] * 1.1 > curr_response:
+        #         idx += 1
+        #     else:
+        #         break
+        radii[i] = np.min(np.sum(np.square(points[:idx] - points[i]), 1))
 
-    n = int(nms_w * size)
     x = np.array(x[np.argpartition(radii, -n)[-n:]])
     y = np.array(y[np.argpartition(radii, -n)[-n:]])
 
