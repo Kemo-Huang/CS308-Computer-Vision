@@ -41,17 +41,14 @@ def get_tiny_images(image_paths):
     """
     # dummy feats variable
     feats = []
-
-    #############################################################################
-    # TODO: YOUR CODE HERE                                                      #
-    #############################################################################
-
-    raise NotImplementedError('`get_tiny_images` function in ' +
-                              '`student_code.py` needs to be implemented')
-
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    width = 16
+    for image_path in image_paths:
+        image = load_image_gray(image_path)
+        image = cv2.resize(image, (width, width), interpolation=cv2.INTER_LINEAR)
+        image = np.reshape(image, (1, width*width))
+        image -= np.mean(image)
+        image_normalized = image / np.std(image)
+        feats.append(image_normalized)
 
     return feats
 
@@ -116,7 +113,7 @@ def build_vocabulary(image_paths, vocab_size):
     #############################################################################
 
     raise NotImplementedError('`build_vocabulary` function in ' +
-                              '`student_code.py` needs to be implemented') 
+                              '`student_code.py` needs to be implemented')
 
     #############################################################################
     #                             END OF YOUR CODE                              #
@@ -189,7 +186,6 @@ def get_bags_of_sifts(image_paths, vocab_filename):
 
     raise NotImplementedError('`get_bags_of_sifts` function in ' +
                               '`student_code.py` needs to be implemented')
-    
 
     #############################################################################
     #                             END OF YOUR CODE                              #
@@ -241,7 +237,7 @@ def nearest_neighbor_classify(train_image_feats, train_labels, test_image_feats,
 
     raise NotImplementedError('`nearest_neighbor_classify` function in ' +
                               '`student_code.py` needs to be implemented')
-    
+
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
