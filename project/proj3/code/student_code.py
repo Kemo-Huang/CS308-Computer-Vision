@@ -39,17 +39,21 @@ def get_tiny_images(image_paths):
     -   feats: N x d numpy array of resized and then vectorized tiny images
               e.g. if the images are resized to 16x16, d would be 256
     """
-    # dummy feats variable
-    feats = []
+    # parameter
     width = 16
-    for image_path in image_paths:
-        image = load_image_gray(image_path)
-        image = cv2.resize(image, (width, width), interpolation=cv2.INTER_LINEAR)
-        image = np.reshape(image, (1, width*width))
+    
+    N = len(image_paths)
+    d = width * width
+    # dummy feats variable
+    feats = np.zeros((N, d))
+    for i in range(N):
+        image = load_image_gray(image_paths[i])
+        image = cv2.resize(image, (width, width),
+                           interpolation=cv2.INTER_LINEAR)
+        image = np.reshape(image, (1, d))
         image -= np.mean(image)
         image_normalized = image / np.std(image)
-        feats.append(image_normalized)
-
+        feats[i, :] = image_normalized
     return feats
 
 
@@ -108,16 +112,22 @@ def build_vocabulary(image_paths, vocab_size):
     dim = 128
     vocab = np.zeros((vocab_size, dim))
 
-    #############################################################################
-    # TODO: YOUR CODE HERE                                                      #
-    #############################################################################
+    # parameters
+    step = 10
+    sample = 200
+    
+    N = len(image_paths)
+    features = np.zeros((sample * N, dim))
 
-    raise NotImplementedError('`build_vocabulary` function in ' +
-                              '`student_code.py` needs to be implemented')
+    idx = 0
+    for image_path in image_paths:
+        image = load_image_gray(image_path)
+        _, descriptors = vlfeat.sift.dsift(image, fast=True, step=step)
+        sample_idx = np.random.permutation(descriptors.shape[0])
+        features[idx:sample + idx, :] = descriptors[sample_idx[:sample], :]
+        idx += sample
 
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    vocab = vlfeat.kmeans.kmeans(features, vocab_size)
 
     return vocab
 
@@ -177,19 +187,23 @@ def get_bags_of_sifts(image_paths, vocab_filename):
     with open(vocab_filename, 'rb') as f:
         vocab = pickle.load(f)
 
+    # parameter
+    step = 10
+
+    N = len(image_paths)
+    vocab_size = vocab.shape[0]
+
     # dummy features variable
-    feats = []
+    feats = np.zeros((N, vocab_size))
 
-    #############################################################################
-    # TODO: YOUR CODE HERE                                                      #
-    #############################################################################
-
-    raise NotImplementedError('`get_bags_of_sifts` function in ' +
-                              '`student_code.py` needs to be implemented')
-
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    for i in range(N):
+        image = load_image_gray(image_paths[i])
+        _, descriptors = vlfeat.sift.dsift(image, fast=True, step=step)
+        assignments = vlfeat.kmeans.kmeans_quantize(descriptors.astype('float64'), vocab)
+        bags_of_sifts = np.zeros((1, vocab_size))
+        for assignment in assignments:
+            bags_of_sifts[0, assignment] += 1
+        feats[i, :] = bags_of_sifts / np.linalg.norm(bags_of_sifts)
 
     return feats
 
@@ -229,18 +243,38 @@ def nearest_neighbor_classify(train_image_feats, train_labels, test_image_feats,
     -   test_labels: M element list, where each entry is a string indicating the
             predicted category for each testing image
     """
-    test_labels = []
 
-    #############################################################################
-    # TODO: YOUR CODE HERE                                                      #
-    #############################################################################
+    # parameter
+    k = 5
 
-    raise NotImplementedError('`nearest_neighbor_classify` function in ' +
-                              '`student_code.py` needs to be implemented')
+    N = len(train_labels)
+    M = test_image_feats.shape[0]
+    test_labels = [None] * M
 
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    # distance
+    D = sklearn_pairwise.pairwise_distances(
+        test_image_feats, train_image_feats,  metric, n_jobs=4)
+
+    string_int_dict = {}
+    int_to_string_dict = {}
+    int_train_labels = [0] * N
+    counter = 0
+    for i in range(N):
+        key = train_labels[i]
+        if key in string_int_dict:
+            _id = string_int_dict[key]
+        else:
+            _id = counter
+            counter += 1
+            string_int_dict[key] = _id
+            int_to_string_dict[_id] = train_labels[i]
+        int_train_labels[i] = _id
+
+    # find knn
+    for i in range(M):
+        knn = np.argpartition(D[i, :], k, axis=0)[:k]
+        knn_labels = np.take(int_train_labels, knn)
+        test_labels[i] = int_to_string_dict[np.argmax(np.bincount(knn_labels))]
 
     return test_labels
 
@@ -281,15 +315,21 @@ def svm_classify(train_image_feats, train_labels, test_image_feats):
 
     test_labels = []
 
-    #############################################################################
-    # TODO: YOUR CODE HERE                                                      #
-    #############################################################################
+    N = train_image_feats.shape[0]
+    M = test_image_feats.shape[0]
+    C = len(categories)
+    confidence_scores = np.zeros((M, C))
 
-    raise NotImplementedError('`svm_classify` function in ' +
-                              '`student_code.py` needs to be implemented')
+    for i in range(C):
+        cat = categories[i]
+        y_train = np.zeros(N)
+        for j in range(N):
+            if cat == train_labels[j]:
+                y_train[j] = 1
+        svms[cat].fit(train_image_feats, y_train)
+        confidence_scores[:, i] = svms[cat].decision_function(test_image_feats)
 
-    #############################################################################
-    #                             END OF YOUR CODE                              #
-    #############################################################################
+    for i in range(M):
+        test_labels.append(categories[np.argmax(confidence_scores[i, :])])
 
     return test_labels
