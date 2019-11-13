@@ -6,11 +6,10 @@ import cyvlfeat as vlfeat
 import sklearn.metrics.pairwise as sklearn_pairwise
 from sklearn.svm import LinearSVC
 from IPython.core.debugger import set_trace
-from PIL import Image
-import scipy.spatial.distance as distance
 from cyvlfeat.sift.dsift import dsift
 from cyvlfeat.kmeans import kmeans
 from time import time
+from joblib import Parallel, delayed, parallel_backend
 
 
 def get_tiny_images(image_paths):
@@ -41,7 +40,7 @@ def get_tiny_images(image_paths):
     """
     # parameter
     width = 16
-    
+
     N = len(image_paths)
     d = width * width
     # dummy feats variable
@@ -115,16 +114,22 @@ def build_vocabulary(image_paths, vocab_size):
     # parameters
     step = 10
     sample = 200
-    
+
     N = len(image_paths)
     features = np.zeros((sample * N, dim))
 
-    idx = 0
-    for image_path in image_paths:
+    def parallel_func(image_path, sample):
         image = load_image_gray(image_path)
         _, descriptors = vlfeat.sift.dsift(image, fast=True, step=step)
         sample_idx = np.random.permutation(descriptors.shape[0])
-        features[idx:sample + idx, :] = descriptors[sample_idx[:sample], :]
+        return descriptors[sample_idx[:sample], :]
+
+    results = Parallel(n_jobs=-1)(delayed(parallel_func)(image_path, sample)
+                                  for image_path in image_paths)
+
+    idx = 0
+    for result in results:
+        features[idx:sample + idx, :] = result
         idx += sample
 
     vocab = vlfeat.kmeans.kmeans(features, vocab_size)
@@ -196,14 +201,21 @@ def get_bags_of_sifts(image_paths, vocab_filename):
     # dummy features variable
     feats = np.zeros((N, vocab_size))
 
-    for i in range(N):
+    def parallel_func(i, image_paths, step, vocab, vocab_size):
         image = load_image_gray(image_paths[i])
         _, descriptors = vlfeat.sift.dsift(image, fast=True, step=step)
-        assignments = vlfeat.kmeans.kmeans_quantize(descriptors.astype('float64'), vocab)
+        assignments = vlfeat.kmeans.kmeans_quantize(
+            descriptors.astype('float64'), vocab)
         bags_of_sifts = np.zeros((1, vocab_size))
         for assignment in assignments:
             bags_of_sifts[0, assignment] += 1
-        feats[i, :] = bags_of_sifts / np.linalg.norm(bags_of_sifts)
+        return bags_of_sifts / np.linalg.norm(bags_of_sifts)
+
+    result = Parallel(n_jobs=-1)(delayed(parallel_func)(i, image_paths, step, vocab, vocab_size)
+                                 for i in range(N))
+
+    for i in range(N):
+        feats[i, :] = result[i]
 
     return feats
 
@@ -253,7 +265,7 @@ def nearest_neighbor_classify(train_image_feats, train_labels, test_image_feats,
 
     # distance
     D = sklearn_pairwise.pairwise_distances(
-        test_image_feats, train_image_feats,  metric, n_jobs=4)
+        test_image_feats, train_image_feats,  metric, n_jobs=2)
 
     string_int_dict = {}
     int_to_string_dict = {}
