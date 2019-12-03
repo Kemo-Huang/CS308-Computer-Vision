@@ -42,13 +42,20 @@ def get_positive_features(train_path_pos, feature_params):
 
     positive_files = glob(osp.join(train_path_pos, '*.jpg'))
 
+    ###########################################################################
+    #                           TODO: YOUR CODE HERE                          #
+    ###########################################################################
+
     n_cell = np.ceil(win_size/cell_size).astype('int')
     feats = np.zeros((len(positive_files), n_cell*n_cell*31))
 
     for i in range(len(positive_files)):
         im = load_image_gray(positive_files[i])
-        hog_feat = vlfeat.hog.hog(im, cell_size)
-        feats[i, :] = hog_feat.ravel()
+        feats[i, :] = vlfeat.hog.hog(im, cell_size).ravel()
+
+    ###########################################################################
+    #                             END OF YOUR CODE                            #
+    ###########################################################################
 
     return feats
 
@@ -85,16 +92,32 @@ def get_random_negative_features(non_face_scn_path, feature_params, num_samples)
 
     negative_files = glob(osp.join(non_face_scn_path, '*.jpg'))
 
-    n_cell = np.ceil(win_size/cell_size).astype('int')
-    feats = np.zeros((len(negative_files), n_cell*n_cell*31))
+    ###########################################################################
+    #                           TODO: YOUR CODE HERE                          #
+    ###########################################################################
 
-    # scale = 0.5
+    n_cell = np.ceil(win_size/cell_size).astype('int')
+    scales = [1, 0.9, 0.8, 0.7, 0.6, 0.5]
+    feats = []
+    samples_per_image = int(num_samples / len(negative_files) / len(scales))
     for i in range(len(negative_files)):
         im = load_image_gray(negative_files[i])
-        hog_feat = vlfeat.hog.hog(im, cell_size)
-        feats[i, :] = hog_feat.ravel()
-        
-    feats = feats[np.random.choice(len(negative_files), num_samples), :]
+        for scale in scales:
+            hog = vlfeat.hog.hog(cv2.resize(
+                im, None, fx=scale, fy=scale), cell_size)
+            for j in range(samples_per_image):
+                r1 = np.random.randint(hog.shape[0])
+                r2 = np.random.randint(hog.shape[1])
+                if (r1 + n_cell < hog.shape[0]) and (r2 + n_cell < hog.shape[1]):
+                    feats.append(
+                        hog[r1:r1+n_cell, r2:r2+n_cell, :].ravel())
+
+    feats = np.array(feats)
+    print(feats.shape)
+
+    ###########################################################################
+    #                             END OF YOUR CODE                            #
+    ###########################################################################
 
     return feats
 
@@ -119,7 +142,11 @@ def train_classifier(features_pos, features_neg, C):
     #                           TODO: YOUR CODE HERE                          #
     ###########################################################################
 
-    svm = PseudoSVM(10, features_pos.shape[1])
+    svm = LinearSVC(tol=1e-5, loss='hinge', C=C)
+    feats = np.vstack((features_pos, features_neg))
+    labels = np.hstack(
+        (np.ones(len(features_pos)), -np.ones(len(features_neg))))
+    svm.fit(feats, labels)
 
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -160,8 +187,10 @@ def mine_hard_negs(non_face_scn_path, svm, feature_params):
     #                           TODO: YOUR CODE HERE                          #
     ###########################################################################
 
-    n_cell = np.ceil(win_size/cell_size).astype('int')
-    feats = np.random.rand(len(negative_files), n_cell*n_cell*31)
+    num_samples = 5000
+    feats = get_random_negative_features(
+        non_face_scn_path, feature_params, num_samples)
+    feats = feats[svm.predict(feats) > 0]
 
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -204,7 +233,7 @@ def run_detector(test_scn_path, svm, feature_params, verbose=False):
             -   hog_cell_size: (default 6) The number of pixels in each HoG
             cell. template size should be evenly divisible by hog_cell_size.
             Smaller HoG cell sizes tend to work better, but they make things
-            slowerbecause the feature dimensionality increases and more
+            slower because the feature dimensionality increases and more
             importantly the step size of the classifier decreases at test time.
     -   verbose: prints out debug information if True
 
@@ -222,12 +251,11 @@ def run_detector(test_scn_path, svm, feature_params, verbose=False):
     image_ids = []
 
     # number of top detections to feed to NMS
-    topk = 15
+    topk = 20
 
     # params for HOG computation
     win_size = feature_params.get('template_size', 36)
     cell_size = feature_params.get('hog_cell_size', 6)
-    scale_factor = feature_params.get('scale_factor', 0.65)
     template_size = int(win_size / cell_size)
 
     for idx, im_filename in enumerate(im_filenames):
@@ -241,12 +269,36 @@ def run_detector(test_scn_path, svm, feature_params, verbose=False):
         #                        TODO: YOUR CODE HERE                         #
         #######################################################################
 
-        cur_x_min = (np.random.rand(15, 1) * im_shape[1]).astype('int')
-        cur_y_min = (np.random.rand(15, 1) * im_shape[0]).astype('int')
-        cur_bboxes = np.hstack([cur_x_min, cur_y_min,
-                                (cur_x_min + np.random.rand(15, 1)*50).astype('int'),
-                                (cur_y_min + np.random.rand(15, 1)*50).astype('int')])
-        cur_confidences = np.random.rand(15)*4 - 2
+        cur_bboxes = []
+        cur_confidences = []
+
+        min_dim = min(im_shape[0], im_shape[1])
+        iteration = 0
+        max_iter = 100
+        scale_factor = 1
+        step_size = 1
+
+        while scale_factor * min_dim > win_size and iteration < max_iter:
+            resized_im = cv2.resize(im, None, fx=scale_factor, fy=scale_factor)
+            hog_feats = vlfeat.hog.hog(resized_im, cell_size)
+            for r in range(0, hog_feats.shape[0]-template_size, step_size):
+                for c in range(0, hog_feats.shape[1]-template_size, step_size):
+                    hog = hog_feats[r:r+template_size, c:c+template_size, :]
+                    score = svm.decision_function(
+                        hog.ravel().reshape(1, -1))[0]
+                    if score >= 0:
+                        cur_bboxes.append(cell_size/scale_factor * np.array(
+                            [c, r, c+template_size, r+template_size]).astype(int))
+                        cur_confidences.append(score)
+            scale_factor *= 0.85
+            iteration += 1
+
+        if len(cur_bboxes) == 0:
+            cur_bboxes = np.zeros((1, 4))
+            cur_confidences = np.array([0])
+        else:
+            cur_bboxes = np.array(cur_bboxes)
+            cur_confidences = np.array(cur_confidences)
 
         #######################################################################
         #                          END OF YOUR CODE                           #
@@ -264,7 +316,6 @@ def run_detector(test_scn_path, svm, feature_params, verbose=False):
         idsort = np.argsort(-cur_confidences)[:topk]
         cur_bboxes = cur_bboxes[idsort]
         cur_confidences = cur_confidences[idsort]
-
         is_valid_bbox = non_max_suppression_bbox(cur_bboxes, cur_confidences,
                                                  im_shape, verbose=verbose)
 

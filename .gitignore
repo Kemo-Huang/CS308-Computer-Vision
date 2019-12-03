@@ -2,3 +2,7 @@ project/proj2/data/
 project/proj3/data/
 project/proj4/data/
 .ipynb_checkpoints/
+*.pyc
+lab/lab12/test.mp4
+lab/lab12/yolov3/config/yolov3.cfg
+lab/lab12/yolov3/config/yolov3-tiny.cfg
