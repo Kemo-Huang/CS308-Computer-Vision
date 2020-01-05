@@ -158,7 +158,7 @@ def get_features(image, x, y, feature_width, scales=None):
                               int(np.ceil(theta[curr] + 1))] += magnitude[curr]
                 else:
                     histogram[j // n_bins, i // n_bins,
-                              int(np.ceil(theta[curr] + 1 + n_bins))] += magnitude[curr]
+                              int(np.ceil(theta[curr] + 1 + n_angles//2))] += magnitude[curr]
         fv[k, :] = np.reshape(histogram, (1, n_angles * n_samples))
 
     # normalize, threshold, normalize
